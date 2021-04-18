@@ -1,7 +1,7 @@
 import usocket as socket
 import ustruct as struct
 from ubinascii import hexlify
-
+#https://github.com/micropython/micropython-lib/tree/master/umqtt.simple
 class MQTTException(Exception):
     pass
 
@@ -26,7 +26,7 @@ class MQTTClient:
         self.lw_msg = None
         self.lw_qos = 0
         self.lw_retain = False
-
+1
     def _send_str(self, s):
         self.sock.write(struct.pack("!H", len(s)))
         self.sock.write(s)
