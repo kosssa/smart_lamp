@@ -2,12 +2,10 @@ from machine import Pin
 import neopixel
 import time
 import math
-# stworzenie konstruktora powinno wykonac małą prezentacje/najporostrzy efekt
-# jak w zegarach auta rozjaśnienie diód od pierwszej do ostatniej i wyaszenie w odwrotnej kolejności
-
-
-# pomysł na przyszłość:
-#     jak jest używany jeden z kolorów(tak mniej wiecej) to można by wtedy podbić moc ale do tego ficzera wymagany bedzie amperowmierz i woltomierz żeby sprawdzic czy zailacz nie dziala na 100%
+# `ToDo
+# 1. Create some fancy animation on the start
+# 2. Create virtual button (mqtt) that will be overide sel.set_color (now te power factor is calculated for white collor)
+#    I need check how many A is needed for each color and then with led_quantity and max_amper_source prepared
 
 class RgbLeds:
 
@@ -17,9 +15,12 @@ class RgbLeds:
         print("Neopixel Configured:( GPIO=", gpioPin, "led quantity=", led_quantity)
         self.rgb.state = None
         self.rgb.last_state = None
+        self.last_state_ascii = None
+
         self.sampling = 16
         self._erase_leds()
         self._calculate_power_factor(max_amper, led_quantity)
+        self.off()
 
     def _calculate_power_factor(self, max_amperage, led_quantity):
         one_diode_power = 60
@@ -54,14 +55,13 @@ class RgbLeds:
         self.rgb.last_state = list()
         for i in range(0, self.led_quantity):
             self.rgb.last_state.append(self.rgb[i])
-        print("Last state: ", self.rgb.last_state)
+        print("Last state: ", self.rgb.last_state[0])
 
     def read_color(self):
         if self.rgb.last_state:
             red, green, blue = self.rgb.last_state[0]
             print("red, green, blue = ", red, green, blue)
             return red, green, blue
-        # print("!!! return None color !!!")
         return None
 
     def set_color(self, red, green, blue):
@@ -69,6 +69,7 @@ class RgbLeds:
         print("red, green, blue: ", red, green, blue)
         for i in range(0, self.led_quantity):
             self.rgb[i] = (int(red), int(green), int(blue))
+        print("rgb state: ", self.rgb.state )
         if self.rgb.state:
             self.rgb.write()
         # time.sleep(0.01)
@@ -79,9 +80,17 @@ class RgbLeds:
         b = b * self.power_factor
         return r, g, b
 
-    def _set_color_fluent_mode(self, msg):
+    def set_color_from_msg(self, msg):
+        self.last_state_ascii = msg
+        red, green, blue = msg.decode('ascii').split(",")
+        self.set_color(int(red), int(green), int(blue))
+        self.rgb.write()
+        self.save_rgb_state()
+        print("color sets to:", int(red), int(green), int(blue))
+
+    def set_color_fluent_mode(self, msg):
         # check initial color
-        
+        self.last_state_ascii = msg
         redi, greeni, bluei = self.read_color() if self.read_color() else (0,0,0)
         redi, greeni, bluei = float(redi), float(greeni), float(bluei)
         
@@ -90,14 +99,10 @@ class RgbLeds:
         delta_r = redi - red
         delta_g = greeni - green
         delta_b = bluei - blue
-        # print("red, green, blue = ", red, green, blue)
-        # print("redi, greeni, bluei = ", redi, greeni, bluei)
-        # print("delta_r, delta_g, delta_b = ", delta_r, delta_g, delta_b)
-        
+
         delta_ru = delta_r/self.sampling
         delta_gu = delta_g/self.sampling
         delta_bu = delta_b/self.sampling
-        # print("delta_ru, delta_gu, delta_bu = ", delta_ru, delta_gu, delta_bu)
 
         if self.rgb.state:
             for i in range(0, self.sampling-1):
@@ -107,21 +112,10 @@ class RgbLeds:
                 print("redi, greeni, bluei = ", redi, greeni, bluei)
                 self.set_color(redi, math.floor(greeni), math.floor(bluei))
         self.set_color(red, green, blue)
+
+        self.rgb.write()
         self.save_rgb_state()
         print("color sets to:", red, green, blue )
-        
-# pixel = rgbLeds(2, led_quantity)
-# pixel.on()
-# pixel._set_color_fluent_mode(b"255,0,0")
-# time.sleep(.5)
-# pixel.read_color()
-# print("\n\n\n\n\n\n\n")
-# # pixel.set_color(0,255,0)
-# pixel._set_color_fluent_mode(b'0,0,255')
-# pixel.read_color()
-# # pixel.save_rgb_state()
-# # pixel.read_color()
-# pixel.off()
 
 
 

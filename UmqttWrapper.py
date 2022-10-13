@@ -1,17 +1,25 @@
+import time
+
 import machine
 import ubinascii
-from RgbLeds import RgbLeds
+from umqtt.simple import MQTTClient
+# from RgbLeds import RgbLeds
 
 
-class UmqttWrapper(RgbLeds):
+class UmqttWrapper:
 
-    def __init__(self, server):
+    def __init__(self, server, rgb_leds, temp_sensor, light_bulb):
         # SERVER = '192.168.1.10'
-        self.server_ip = '192.168.1.10'
+        self.server_ip = server
         print("machine_unique_id")
         print(machine.unique_id())
+        #spróbować użyc randomowego profixu bo może przy połaczeniu do brokera dany id juz jest polaczony (zerwane połaczenie)
         self.client_id = ubinascii.hexlify(machine.unique_id())
         self._config_topics()
+        self.rgb_leds = rgb_leds
+        self.temp_sensor = temp_sensor
+        self.light_bulb = light_bulb
+        self.client = None
 
     def _config_topics(self):
         self.topic_temperature = b'smart_lamp/temp'
@@ -23,56 +31,65 @@ class UmqttWrapper(RgbLeds):
         self.topic_rgb_set_rgb = b'smart_lamp/rgb/SetRGB'
         self.topic_rgb_get_rgb = b'smart_lamp/rgb/GetRGB'
 
+    def connect(self):
+        i = 0
+        while i < 30:
+            try:
+                self.client = MQTTClient(self.client_id, self.server_ip, 1883, user="username", password="password")
+                self.client.set_callback(self.callback)
+                self.client.connect()
+                break
+            except:
+                print("can't connect to mqqt broker")
+            i += 1
+            time.sleep(10)
+
+    def subscribe_rgb_and_light_bulb(self):
+        self.client.subscribe(self.topic_rgb_set_on)
+        self.client.subscribe(self.topic_rgb_set_rgb)
+        self.client.subscribe(self.topic_light_bulb_set_on)
+
+    def publish_all_sensor_and_lights(self):
+        self.client.publish(self.topic_light_bulb_get_on, "false")
+        self.client.publish(self.topic_rgb_get_on, "false")
+        self.publish_temp_and_humid()
+
     def hello_world(self):
         print("hello_world")
 
     def callback(self, topic, msg):
         print("topic:", topic, "\tmsg:", msg)
         if topic == self.topic_rgb_set_on:
-            # rgp_light_on() if msg == b"true" else rgb_light_off()
             if msg == b"true":
-                RgbLeds.on()
-                self.client.publish(TOPIC_RGB_GET_ON, "true")
+                self.rgb_leds.on()
+                self.client.publish(self.topic_rgb_get_on, "true")
             else:
-                pixel.off()
-                client.publish(TOPIC_RGB_GET_ON, "false")
+                self.rgb_leds.off()
+                self.client.publish(self.topic_rgb_get_on, "false")
 
-        elif topic == TOPIC_RGB_SET_RGB:
-            # w ustawieniu koloru powinien automat sprawdzać czy nie ma nowego msg set
-            # jesli tak ma prerwać ustawienie koloru
+        elif topic == self.topic_rgb_set_rgb:
+            # ToDo
+            # check if new msg is arrived, if yes return and set colort again
+            self.rgb_leds.set_color_from_msg(msg)
+            # self.client.publish(self.topic_rgb_get_rgb, msg) <- this generate the issue
+            # (color was change to white when slide goes to 0 )
 
-            pixel.setColorFluentMode(msg)
+        elif topic == self.topic_light_bulb_set_on:
+            print("topic:", self.topic_light_bulb_set_on)
+            if msg == b"true":
+                self.light_bulb.on()
+                self.client.publish(self.topic_light_bulb_get_on, "true")
+            else:
+                self.light_bulb.off()
+                self.client.publish(self.topic_light_bulb_get_on, "false")
 
-            # client.publish(TOPIC_RGB_GET_RGB, msg)
+    def publish_temp_and_humid(self):
+        temperature, humidity = self.temp_sensor.measure()
+        self.client.publish(self.topic_temperature, str(temperature))
+        self.client.publish(self.topic_humidity, str(humidity) + "%")
+        print('Temperature:', temperature, 'C \thumidity:', humidity, '%')
 
-        elif topic == TOPIC_LAMP_SET_ON:
-            print("topic:", TOPIC_LAMP_SET_ON)
-            light_bulb.on() if msg == b"true" else light_bulb.off()
-
-    def publish_light_bulb_status():
-        temperature, humidity = sensor.measure()
-        client.publish(TOPIC_HUMIDITY, str(humidity) + "%")
-        # print('Publish light bulb status :', TOPIC_LAMP_GET_ON, " true")
-
-    def publish_temp_and_humid():
-        temperature, humidity = sensor.measure()
-        client.publish(TOPIC_TEMPERATURE, str(temperature))
-        client.publish(TOPIC_HUMIDITY, str(humidity) + "%")
-        # print('Temperature:', temperature, 'ºC, RH:', humidity, '%')
-
-
-SERVER = '192.168.1.10'
-CLIENT_ID = ubinascii.hexlify(machine.unique_id())
-
-
-client = MQTTClient(CLIENT_ID, SERVER, 1883, user="username", password="password")
-client.set_callback(sub_cb)
-client.connect()
-client.subscribe(TOPIC_RGB_SET_ON)
-client.subscribe(TOPIC_RGB_SET_RGB)
-client.subscribe(TOPIC_LAMP_SET_ON)
-
-client.publish(TOPIC_LAMP_GET_ON, "true")
-client.publish(TOPIC_RGB_GET_ON, "true")
-
-publish_temp_and_humid()
+    def publish_last_rgb_state(self):
+        if self.rgb_leds.last_state_ascii:
+            print(self.rgb_leds.last_state_ascii)
+            self.client.publish(self.topic_rgb_get_rgb,  self.rgb_leds.last_state_ascii)
